@@ -5,7 +5,7 @@ import type { DeptId } from "@/lib/departments";
 
 type Msg = { role: "user" | "assistant"; content: string; files?: FileAttach[] };
 type FileAttach = { name: string; mimeType: string; base64: string; previewUrl?: string };
-type HistoryItem = { id: string; dept_id: string; title: string; updated_at: string };
+type HistoryItem = { id: string; dept_id: string; title: string; updated_at: string; user_name?: string };
 
 function md(text: string) {
   return text
@@ -41,6 +41,9 @@ export default function Home() {
   const [kwRefs, setKwRefs] = useState<string[]>([]);
   const [attached, setAttached] = useState<FileAttach[]>([]);
   const [tick, setTick] = useState(0);
+  const [userName, setUserName] = useState("");
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [nameInput, setNameInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -48,10 +51,24 @@ export default function Home() {
   const groups = groupedDepts();
 
   useEffect(() => {
+    const saved = localStorage.getItem("gfs_user_name");
+    if (saved) setUserName(saved);
+    else setShowNameModal(true);
+  }, []);
+
+  useEffect(() => {
     fetch("/api/conversations").then(r=>r.json()).then(d=>setHistory(d.conversations??[]));
   }, [convId, tick]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs, loading]);
+
+  const saveName = () => {
+    const name = nameInput.trim();
+    if (!name) return;
+    localStorage.setItem("gfs_user_name", name);
+    setUserName(name);
+    setShowNameModal(false);
+  };
 
   const newChat = (id?: DeptId) => {
     setMsgs([]); setConvId(crypto.randomUUID()); setKwRefs([]); setAttached([]);
@@ -62,6 +79,23 @@ export default function Home() {
     const r = await fetch(`/api/conversations/${id}`);
     const d = await r.json();
     if (d.conversation) { setMsgs(d.conversation.messages); setDeptId(d.conversation.dept_id); setConvId(id); }
+  };
+
+  const exportConv = () => {
+    if (msgs.length === 0) return;
+    const lines = [`# ${dept.name} - 会話ログ`, `**ユーザー:** ${userName || "不明"}`, `**日時:** ${new Date().toLocaleString("ja-JP")}`, "---", ""];
+    msgs.forEach(m => {
+      lines.push(`**${m.role === "user" ? (userName || "ユーザー") : "AI秘書"}:**`);
+      lines.push(m.content);
+      lines.push("");
+    });
+    const blob = new Blob([lines.join("\n")], {type: "text/markdown"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `会話_${dept.name}_${new Date().toISOString().slice(0,10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -93,7 +127,6 @@ export default function Home() {
     setLoading(true);
     setKwRefs([]);
 
-    // ナレッジ検索
     let kwCtx = "";
     if (text) {
       const kw = await fetch(`/api/knowledge?q=${encodeURIComponent(text)}&dept=${deptId}`).then(r=>r.json());
@@ -107,7 +140,7 @@ export default function Home() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: kwCtx||null, files }),
+      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: kwCtx||null, files, userName }),
     });
 
     if (!res.ok) {
@@ -149,11 +182,40 @@ export default function Home() {
 
   return (
     <div style={S.app}>
+      {/* Name modal */}
+      {showNameModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:"var(--surface)",borderRadius:"var(--r-lg)",padding:"32px",width:320,boxShadow:"0 20px 60px rgba(0,0,0,0.3)"}}>
+            <div style={{fontSize:32,textAlign:"center",marginBottom:12}}>👋</div>
+            <div style={{fontSize:16,fontWeight:600,marginBottom:6,textAlign:"center"}}>はじめに名前を教えてください</div>
+            <div style={{fontSize:13,color:"var(--text2)",marginBottom:20,textAlign:"center"}}>会話ログに記録されます</div>
+            <input
+              value={nameInput}
+              onChange={e=>setNameInput(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&saveName()}
+              placeholder="例：小川、田中"
+              autoFocus
+              style={{width:"100%",padding:"10px 12px",border:"1.5px solid var(--border)",borderRadius:"var(--r-md)",fontSize:14,outline:"none",boxSizing:"border-box" as const,fontFamily:"inherit"}}
+            />
+            <button onClick={saveName} disabled={!nameInput.trim()} style={{width:"100%",marginTop:12,padding:"10px",background:"var(--navy)",color:"#fff",border:"none",borderRadius:"var(--r-md)",fontSize:14,fontWeight:600,cursor:nameInput.trim()?"pointer":"default",opacity:nameInput.trim()?1:0.5}}>
+              開始する
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside style={S.side}>
         <div style={{padding:"16px 14px 12px",borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
           <div style={{fontSize:17,fontWeight:700,color:"#fff",letterSpacing:"0.05em"}}>GFS AI秘書</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:2}}>バリューアップ部</div>
+          {userName && (
+            <div style={{marginTop:8,display:"flex",alignItems:"center",gap:6}}>
+              <div style={{width:22,height:22,borderRadius:"50%",background:"var(--gold)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"var(--navy)",fontWeight:700}}>{userName[0]}</div>
+              <span style={{fontSize:12,color:"rgba(255,255,255,0.7)"}}>{userName}</span>
+              <button onClick={()=>{setNameInput(userName);setShowNameModal(true);}} style={{marginLeft:"auto",background:"none",border:"none",color:"rgba(255,255,255,0.35)",fontSize:11,cursor:"pointer"}}>変更</button>
+            </div>
+          )}
         </div>
         <button onClick={()=>newChat()} style={{margin:"10px 10px 4px",padding:"8px 12px",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.4)",borderRadius:"var(--r-md)",color:"var(--gold-l)",fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
           <span style={{fontSize:15}}>＋</span> 新しいチャット
@@ -173,12 +235,15 @@ export default function Home() {
           {history.length > 0 && (
             <div style={{marginTop:14}}>
               <div style={{fontSize:10,color:"rgba(255,255,255,0.35)",padding:"0 8px 4px",letterSpacing:"0.08em",textTransform:"uppercase"}}>最近の会話</div>
-              {history.slice(0,10).map(h => {
+              {history.slice(0,15).map(h => {
                 const d = DEPARTMENTS.find(dep=>dep.id===h.dept_id);
                 return (
                   <button key={h.id} onClick={()=>loadConv(h.id)} style={{width:"100%",textAlign:"left",padding:"5px 10px",background:"transparent",border:"1px solid transparent",borderRadius:"var(--r-sm)",cursor:"pointer",color:"rgba(255,255,255,0.5)",fontSize:12,display:"flex",alignItems:"center",gap:6,marginBottom:1}}>
                     <span style={{fontSize:12}}>{d?.icon??"💬"}</span>
-                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.title}</span>
+                    <div style={{flex:1,overflow:"hidden"}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.title}</div>
+                      {h.user_name && <div style={{fontSize:10,color:"rgba(255,255,255,0.3)"}}>{h.user_name}</div>}
+                    </div>
                   </button>
                 );
               })}
@@ -195,9 +260,16 @@ export default function Home() {
             <div style={{fontSize:14,fontWeight:600}}>{dept.name}</div>
             <div style={{fontSize:11,color:"var(--text3)"}}>{dept.group}</div>
           </div>
-          <div style={{marginLeft:"auto",fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:5}}>
-            <span style={{width:7,height:7,borderRadius:"50%",background:"#16a34a",display:"inline-block"}}/>
-            Obsidianと同期中
+          <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
+            {msgs.length > 0 && (
+              <button onClick={exportConv} title="会話をMarkdownでエクスポート" style={{padding:"5px 12px",background:"transparent",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",fontSize:12,color:"var(--text2)",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                ⬇ エクスポート
+              </button>
+            )}
+            <div style={{fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:5}}>
+              <span style={{width:7,height:7,borderRadius:"50%",background:"#16a34a",display:"inline-block"}}/>
+              Obsidianと同期中
+            </div>
           </div>
         </div>
 
@@ -220,28 +292,33 @@ export default function Home() {
               {m.role==="assistant" && (
                 <div style={{width:30,height:30,borderRadius:"50%",background:"var(--navy)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"var(--gold-l)",flexShrink:0,marginTop:2}}>秘</div>
               )}
-              <div style={{maxWidth:"72%",padding:"10px 14px",background:m.role==="user"?"var(--navy)":"var(--surface)",color:m.role==="user"?"#fff":"var(--text)",borderRadius:m.role==="user"?"var(--r-lg) var(--r-lg) 4px var(--r-lg)":"var(--r-lg) var(--r-lg) var(--r-lg) 4px",border:m.role==="assistant"?"1px solid var(--border)":"none",fontSize:14,lineHeight:1.7}}>
-                {m.files?.length ? (
-                  <div style={{marginBottom:8,display:"flex",flexWrap:"wrap",gap:6}}>
-                    {m.files.map((f,fi) => f.previewUrl
-                      ? <img key={fi} src={f.previewUrl} alt={f.name} style={{maxWidth:200,maxHeight:150,borderRadius:"var(--r-sm)",objectFit:"cover"}}/>
-                      : <div key={fi} style={{background:"rgba(255,255,255,0.15)",padding:"3px 9px",borderRadius:"var(--r-sm)",fontSize:12}}>📎 {f.name}</div>
-                    )}
-                  </div>
-                ) : null}
-                {m.role==="assistant"
-                  ? <div className="prose" dangerouslySetInnerHTML={{__html: md(m.content)}}/>
-                  : <span style={{whiteSpace:"pre-wrap"}}>{m.content}</span>
-                }
-                {m.role==="assistant" && i===msgs.length-1 && kwRefs.length>0 && (
-                  <div style={{marginTop:8,paddingTop:6,borderTop:"1px solid var(--border)",fontSize:11,color:"var(--text3)",display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                    <span>参照：</span>
-                    {kwRefs.map(r=><span key={r} style={{background:"var(--blue-bg)",color:"var(--blue)",padding:"1px 7px",borderRadius:10}}>{r}</span>)}
-                  </div>
+              <div style={{maxWidth:"72%"}}>
+                {m.role==="user" && userName && (
+                  <div style={{fontSize:11,color:"var(--text3)",textAlign:"right",marginBottom:3}}>{userName}</div>
                 )}
+                <div style={{padding:"10px 14px",background:m.role==="user"?"var(--navy)":"var(--surface)",color:m.role==="user"?"#fff":"var(--text)",borderRadius:m.role==="user"?"var(--r-lg) var(--r-lg) 4px var(--r-lg)":"var(--r-lg) var(--r-lg) var(--r-lg) 4px",border:m.role==="assistant"?"1px solid var(--border)":"none",fontSize:14,lineHeight:1.7}}>
+                  {m.files?.length ? (
+                    <div style={{marginBottom:8,display:"flex",flexWrap:"wrap",gap:6}}>
+                      {m.files.map((f,fi) => f.previewUrl
+                        ? <img key={fi} src={f.previewUrl} alt={f.name} style={{maxWidth:200,maxHeight:150,borderRadius:"var(--r-sm)",objectFit:"cover"}}/>
+                        : <div key={fi} style={{background:"rgba(255,255,255,0.15)",padding:"3px 9px",borderRadius:"var(--r-sm)",fontSize:12}}>📎 {f.name}</div>
+                      )}
+                    </div>
+                  ) : null}
+                  {m.role==="assistant"
+                    ? <div className="prose" dangerouslySetInnerHTML={{__html: md(m.content)}}/>
+                    : <span style={{whiteSpace:"pre-wrap"}}>{m.content}</span>
+                  }
+                  {m.role==="assistant" && i===msgs.length-1 && kwRefs.length>0 && (
+                    <div style={{marginTop:8,paddingTop:6,borderTop:"1px solid var(--border)",fontSize:11,color:"var(--text3)",display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                      <span>参照：</span>
+                      {kwRefs.map(r=><span key={r} style={{background:"var(--blue-bg)",color:"var(--blue)",padding:"1px 7px",borderRadius:10}}>{r}</span>)}
+                    </div>
+                  )}
+                </div>
               </div>
               {m.role==="user" && (
-                <div style={{width:30,height:30,borderRadius:"50%",background:"var(--surface2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"var(--text2)",flexShrink:0,marginTop:2}}>人</div>
+                <div style={{width:30,height:30,borderRadius:"50%",background:"var(--gold)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"var(--navy)",fontWeight:700,flexShrink:0,marginTop:2}}>{userName?userName[0]:"人"}</div>
               )}
             </div>
           ))}

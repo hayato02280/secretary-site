@@ -49,7 +49,7 @@ async function callGroq(systemPrompt: string, messages: ConversationMessage[], f
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, deptId, conversationId, knowledgeContext, files = [] } = await req.json();
+  const { messages, deptId, conversationId, knowledgeContext, files = [], userName = "" } = await req.json();
 
   const dept = getDept(deptId as DeptId);
   const systemPrompt =
@@ -114,6 +114,7 @@ export async function POST(req: NextRequest) {
             dept_id: deptId,
             title: messages[0]?.content?.slice(0, 40) ?? "新しい会話",
             messages: allMessages,
+            user_name: userName,
             updated_at: new Date().toISOString(),
           });
       }
