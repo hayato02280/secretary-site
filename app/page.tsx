@@ -168,17 +168,14 @@ export default function Home() {
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:2}}>バリューアップ部</div>
         </div>
         <nav style={{flex:1,overflowY:"auto",padding:"4px 6px 12px"}}>
-          {Object.entries(groups).map(([group, depts]) => (
-            <div key={group} style={{marginTop:10}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.35)",padding:"0 8px 4px",letterSpacing:"0.08em",textTransform:"uppercase"}}>{group}</div>
-              {depts.map(d => (
-                <button key={d.id} onClick={()=>{ setDeptId(d.id); newChat(d.id); }} style={{width:"100%",textAlign:"left",padding:"7px 10px",background:deptId===d.id?"rgba(255,255,255,0.12)":"transparent",border:deptId===d.id?"1px solid rgba(255,255,255,0.15)":"1px solid transparent",borderRadius:"var(--r-sm)",color:deptId===d.id?"#fff":"rgba(255,255,255,0.6)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:7,marginBottom:1}}>
-                  <span>{d.icon}</span>
-                  <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
-                </button>
-              ))}
-            </div>
-          ))}
+          <div style={{marginTop:8}}>
+            {DEPARTMENTS.map(d => (
+              <button key={d.id} onClick={()=>{ setDeptId(d.id); newChat(d.id); }} style={{width:"100%",textAlign:"left",padding:"7px 10px",background:deptId===d.id?"rgba(255,255,255,0.12)":"transparent",border:deptId===d.id?"1px solid rgba(255,255,255,0.15)":"1px solid transparent",borderRadius:"var(--r-sm)",color:deptId===d.id?"#fff":"rgba(255,255,255,0.6)",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",gap:7,marginBottom:1}}>
+                <span>{d.icon}</span>
+                <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+              </button>
+            ))}
+          </div>
           {history.length > 0 && (
             <div style={{marginTop:14}}>
               <div style={{fontSize:10,color:"rgba(255,255,255,0.35)",padding:"0 8px 4px",letterSpacing:"0.08em",textTransform:"uppercase"}}>最近の会話</div>
