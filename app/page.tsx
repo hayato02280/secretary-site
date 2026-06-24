@@ -37,6 +37,7 @@ export default function Home() {
   const [attached, setAttached] = useState<FileAttach[]>([]);
   const [tick, setTick] = useState(0);
   const [webSearch, setWebSearch] = useState(false);
+  const [fetchingUrls, setFetchingUrls] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -93,6 +94,11 @@ export default function Home() {
     e.target.value = "";
   };
 
+  const extractUrls = (text: string): string[] => {
+    const matches = text.match(/https?:\/\/[^\s　、。，．」』】〕）］｝》』>]+/g);
+    return matches ? [...new Set(matches)] : [];
+  };
+
   const send = async () => {
     const text = input.trim();
     if ((!text && attached.length === 0) || loading) return;
@@ -106,6 +112,25 @@ export default function Home() {
     setLoading(true);
     setKwRefs([]);
 
+    // URL検出して内容取得
+    const urls = extractUrls(text);
+    let urlCtx = "";
+    if (urls.length > 0) {
+      setFetchingUrls(urls.slice(0, 3));
+      const results = await Promise.all(
+        urls.slice(0, 3).map(url =>
+          fetch("/api/fetch-url", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({url}) })
+            .then(r => r.json())
+            .catch(() => null)
+        )
+      );
+      setFetchingUrls([]);
+      urlCtx = results
+        .filter(r => r && r.text)
+        .map(r => `【URL取得: ${r.url}】\n${r.text}`)
+        .join("\n\n---\n\n");
+    }
+
     let kwCtx = "";
     if (text) {
       const kw = await fetch(`/api/knowledge?q=${encodeURIComponent(text)}&dept=${deptId}`).then(r=>r.json());
@@ -116,10 +141,12 @@ export default function Home() {
       }
     }
 
+    const combinedCtx = [urlCtx, kwCtx].filter(Boolean).join("\n\n===\n\n");
+
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: kwCtx||null, files, webSearch }),
+      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: combinedCtx||null, files, webSearch }),
     });
 
     if (!res.ok) {
@@ -262,8 +289,17 @@ export default function Home() {
           {loading && (
             <div style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:16}}>
               <div style={{width:30,height:30,borderRadius:"50%",background:"var(--navy)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,color:"var(--gold-l)",flexShrink:0}}>秘</div>
-              <div style={{padding:"12px 16px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r-lg) var(--r-lg) var(--r-lg) 4px",display:"flex",gap:5,alignItems:"center"}}>
-                {[0,1,2].map(i=><span key={i} style={{width:7,height:7,borderRadius:"50%",background:"var(--text3)",display:"inline-block",animation:`pulse 1.2s ${i*0.2}s infinite`}}/>)}
+              <div style={{padding:"12px 16px",background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r-lg) var(--r-lg) var(--r-lg) 4px",display:"flex",flexDirection:"column",gap:6}}>
+                {fetchingUrls.length > 0 ? (
+                  <div style={{fontSize:12,color:"var(--text3)"}}>
+                    🌐 URL読み取り中… {fetchingUrls.map(u => {
+                      try { return new URL(u).hostname; } catch { return u.slice(0,30); }
+                    }).join(", ")}
+                  </div>
+                ) : null}
+                <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                  {[0,1,2].map(i=><span key={i} style={{width:7,height:7,borderRadius:"50%",background:"var(--text3)",display:"inline-block",animation:`pulse 1.2s ${i*0.2}s infinite`}}/>)}
+                </div>
               </div>
             </div>
           )}
