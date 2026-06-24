@@ -7,7 +7,7 @@ import type { ConversationMessage } from "@/lib/supabase";
 type AttachedFile = { name: string; mimeType: string; base64: string };
 
 // Groq REST API を直接呼ぶ（SDK不使用・完全無料）
-async function callGroq(systemPrompt: string, messages: ConversationMessage[], files: AttachedFile[]) {
+async function callGroq(systemPrompt: string, messages: ConversationMessage[], files: AttachedFile[], webSearch = false) {
   const apiKey = process.env.GROQ_API_KEY!;
   const url = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -38,7 +38,7 @@ async function callGroq(systemPrompt: string, messages: ConversationMessage[], f
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: webSearch ? "compound-beta" : "llama-3.3-70b-versatile",
       messages: groqMsgs,
       max_tokens: 2048,
       stream: true,
@@ -49,7 +49,7 @@ async function callGroq(systemPrompt: string, messages: ConversationMessage[], f
 }
 
 export async function POST(req: NextRequest) {
-  const { messages, deptId, conversationId, knowledgeContext, files = [], userName = "" } = await req.json();
+  const { messages, deptId, conversationId, knowledgeContext, files = [], userName = "", webSearch = false } = await req.json();
 
   const dept = getDept(deptId as DeptId);
   const systemPrompt =
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   let apiRes: Response;
   try {
-    apiRes = await callGroq(systemPrompt, messages, files);
+    apiRes = await callGroq(systemPrompt, messages, files, webSearch);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return new NextResponse(`接続エラー: ${msg}`, { status: 500 });

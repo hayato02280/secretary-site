@@ -36,6 +36,7 @@ export default function Home() {
   const [kwRefs, setKwRefs] = useState<string[]>([]);
   const [attached, setAttached] = useState<FileAttach[]>([]);
   const [tick, setTick] = useState(0);
+  const [webSearch, setWebSearch] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -118,7 +119,7 @@ export default function Home() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: kwCtx||null, files }),
+      body: JSON.stringify({ messages: newMsgs.map(m=>({role:m.role,content:m.content})), deptId, conversationId: convId, knowledgeContext: kwCtx||null, files, webSearch }),
     });
 
     if (!res.ok) {
@@ -166,9 +167,6 @@ export default function Home() {
           <div style={{fontSize:17,fontWeight:700,color:"#fff",letterSpacing:"0.05em"}}>GFS AI秘書</div>
           <div style={{fontSize:11,color:"rgba(255,255,255,0.5)",marginTop:2}}>バリューアップ部</div>
         </div>
-        <button onClick={()=>newChat()} style={{margin:"10px 10px 4px",padding:"8px 12px",background:"rgba(201,168,76,0.15)",border:"1px solid rgba(201,168,76,0.4)",borderRadius:"var(--r-md)",color:"var(--gold-l)",fontSize:13,cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:6}}>
-          <span style={{fontSize:15}}>＋</span> 新しいチャット
-        </button>
         <nav style={{flex:1,overflowY:"auto",padding:"4px 6px 12px"}}>
           {Object.entries(groups).map(([group, depts]) => (
             <div key={group} style={{marginTop:10}}>
@@ -289,8 +287,9 @@ export default function Home() {
             </div>
           )}
           <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.txt,.md,.csv" onChange={onFile} style={{display:"none"}}/>
-          <div style={{display:"flex",gap:8,alignItems:"flex-end",background:"var(--bg)",border:"1.5px solid var(--border)",borderRadius:"var(--r-lg)",padding:"8px 8px 8px 12px"}}>
+          <div style={{display:"flex",gap:8,alignItems:"flex-end",background:"var(--bg)",border:`1.5px solid ${webSearch?"var(--blue)":"var(--border)"}`,borderRadius:"var(--r-lg)",padding:"8px 8px 8px 12px",transition:"border-color 0.2s"}}>
             <button onClick={()=>fileRef.current?.click()} title="ファイル添付" style={{width:32,height:32,borderRadius:"var(--r-sm)",background:"transparent",border:"1px solid var(--border)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text3)",fontSize:16,flexShrink:0}}>📎</button>
+            <button onClick={()=>setWebSearch(v=>!v)} title="ネット検索" style={{width:32,height:32,borderRadius:"var(--r-sm)",background:webSearch?"var(--blue)":"transparent",border:`1px solid ${webSearch?"var(--blue)":"var(--border)"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0,color:webSearch?"#fff":"var(--text3)",transition:"all 0.2s"}}>🌐</button>
             <textarea ref={taRef} value={input} onChange={onInput} onKeyDown={onKey} placeholder={`${dept.name}に質問・依頼する…（Enterで送信、Shift+Enterで改行）`} rows={1} style={{flex:1,background:"transparent",border:"none",outline:"none",resize:"none",fontSize:14,color:"var(--text)",lineHeight:1.6,fontFamily:"inherit",overflowY:"hidden",maxHeight:160}}/>
             <button onClick={send} disabled={(!input.trim()&&attached.length===0)||loading} style={{width:36,height:36,borderRadius:"50%",background:(input.trim()||attached.length>0)&&!loading?"var(--navy)":"var(--border)",border:"none",cursor:(input.trim()||attached.length>0)&&!loading?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:"#fff",fontSize:18,transition:"background 0.15s"}}>↑</button>
           </div>
