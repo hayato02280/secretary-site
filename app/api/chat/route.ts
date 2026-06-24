@@ -30,7 +30,11 @@ async function callGroq(systemPrompt: string, messages: ConversationMessage[], f
       }
       groqMsgs.push({ role: m.role, content });
     } else {
-      groqMsgs.push({ role: m.role, content: m.content });
+      // content が配列（画像添付メッセージ）の場合はテキスト部分のみ抽出
+      const content = Array.isArray(m.content)
+        ? (m.content as { type: string; text?: string }[]).find(c => c.type === "text")?.text ?? ""
+        : (m.content ?? "");
+      groqMsgs.push({ role: m.role, content });
     }
   }
 
