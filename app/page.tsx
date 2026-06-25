@@ -20,14 +20,11 @@ function md(text: string) {
 }
 
 const HINTS: Record<string, string[]> = {
-  "gfs-general": ["コンプライアンス上NGな表現を教えて","共通カラーコードは？","セミナーURLを確認したい"],
-  "quality-check": ["この文面のFBをして","このコピーどう思う？"],
-  "bunzemi": ["NVIDIA決算絡みで体験会誘引メールを作って","件名だけ3案出して","バナーサイズの仕様を教えて","体験会申込率を上げる施策を考えて"],
-  "kobetsu": ["個別株ゼミ体験会の案内メールを作って","ブンゼミからの誘引施策を考えて","バナー仕様を確認したい"],
+  "quality-check": ["この文面のFBをして","このコピーどう思う？","体験会申込率を上げる施策を考えて","件名だけ3案出して"],
 };
 
 export default function Home() {
-  const [deptId, setDeptId] = useState<DeptId>("gfs-general");
+  const [deptId, setDeptId] = useState<DeptId>("quality-check");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
