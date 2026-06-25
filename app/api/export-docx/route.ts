@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     } else {
       // **bold** を処理
       const parts = line.split(/\*\*(.+?)\*\*/);
-      const runs: TextRun[] = parts.map((p, i) =>
+      const runs: TextRun[] = parts.map((p: string, i: number) =>
         new TextRun({ text: p, bold: i % 2 === 1, size: 24 })
       );
       paragraphs.push(new Paragraph({ children: runs, spacing: { after: 100 } }));
