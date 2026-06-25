@@ -10,7 +10,9 @@ export async function POST(req: NextRequest) {
 
   try {
     if (name.endsWith(".pdf")) {
-      const pdfParse = (await import("pdf-parse")).default;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfParseModule = await import("pdf-parse") as any;
+      const pdfParse = pdfParseModule.default ?? pdfParseModule;
       const data = await pdfParse(buf);
       return NextResponse.json({ text: data.text.slice(0, 8000), name: file.name });
     }
