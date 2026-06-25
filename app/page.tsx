@@ -134,7 +134,7 @@ export default function Home() {
       const refs = kw.results ?? [];
       if (refs.length) {
         setKwRefs(refs.map((r: {title:string}) => r.title));
-        kwCtx = refs.map((r: {title:string;content:string}) => `【${r.title}】\n${r.content.slice(0,600)}`).join("\n\n---\n\n");
+        kwCtx = refs.map((r: {title:string;content:string}) => `【${r.title}】\n${r.content.slice(0,2000)}`).join("\n\n---\n\n");
       }
     }
 
