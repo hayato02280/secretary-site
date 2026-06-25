@@ -3,8 +3,9 @@ import { useState, useRef, useEffect } from "react";
 import { DEPARTMENTS, groupedDepts, getDept } from "@/lib/departments";
 import type { DeptId } from "@/lib/departments";
 
-type Msg = { role: "user" | "assistant"; content: string; files?: FileAttach[] };
+type Msg = { role: "user" | "assistant"; content: string; files?: FileAttach[]; docTexts?: string[] };
 type FileAttach = { name: string; mimeType: string; base64: string; previewUrl?: string };
+type DocAttach = { name: string; text: string };
 type HistoryItem = { id: string; dept_id: string; title: string; updated_at: string };
 
 function md(text: string) {
@@ -32,7 +33,10 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [kwRefs, setKwRefs] = useState<string[]>([]);
   const [attached, setAttached] = useState<FileAttach[]>([]);
+  const [docs, setDocs] = useState<DocAttach[]>([]);
+  const [extracting, setExtracting] = useState(false);
   const [tick, setTick] = useState(0);
+  const [hoverHistId, setHoverHistId] = useState<string | null>(null);
   const [webSearch, setWebSearch] = useState(false);
   const [fetchingUrls, setFetchingUrls] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -48,7 +52,7 @@ export default function Home() {
   useEffect(() => { bottomRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs, loading]);
 
   const newChat = (id?: DeptId) => {
-    setMsgs([]); setConvId(crypto.randomUUID()); setKwRefs([]); setAttached([]);
+    setMsgs([]); setConvId(crypto.randomUUID()); setKwRefs([]); setAttached([]); setDocs([]);
     if (id) setDeptId(id);
   };
 
@@ -56,6 +60,54 @@ export default function Home() {
     const r = await fetch(`/api/conversations/${id}`);
     const d = await r.json();
     if (d.conversation) { setMsgs(d.conversation.messages); setDeptId(d.conversation.dept_id); setConvId(id); }
+  };
+
+  const deleteConv = async (id: string) => {
+    await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+    if (convId === id) newChat();
+    setTick(t => t + 1);
+  };
+
+  const exportDocx = async () => {
+    const last = [...msgs].reverse().find(m => m.role === "assistant");
+    if (!last) return;
+    const title = msgs.find(m => m.role === "user")?.content.slice(0, 40) ?? "ドキュメント";
+    const res = await fetch("/api/export-docx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content: last.content }),
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title}.docx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const [creatingGdoc, setCreatingGdoc] = useState<string | null>(null);
+  const [gdocUrl, setGdocUrl] = useState<string | null>(null);
+
+  const createGoogleFile = async (type: "doc" | "sheet", content: string) => {
+    const title = msgs.find(m => m.role === "user")?.content.slice(0, 40) ?? "GFS AI秘書";
+    setCreatingGdoc(type);
+    setGdocUrl(null);
+    try {
+      const res = await fetch("/api/create-gdoc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: type === "sheet" ? "sheet" : "doc", title, content, userQuestion: msgs.find(m => m.role === "user")?.content ?? "" }),
+      });
+      const d = await res.json();
+      if (d.url) {
+        setGdocUrl(d.url);
+      } else {
+        alert(d.error ?? "作成に失敗しました");
+      }
+    } finally {
+      setCreatingGdoc(null);
+    }
   };
 
   const exportConv = () => {
@@ -75,20 +127,36 @@ export default function Home() {
     URL.revokeObjectURL(url);
   };
 
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files??[]).forEach(f => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        setAttached(prev => [...prev, {
-          name: f.name, mimeType: f.type,
-          base64: result.split(",")[1],
-          previewUrl: f.type.startsWith("image/") ? result : undefined,
-        }]);
-      };
-      reader.readAsDataURL(f);
-    });
+  const DOC_EXTS = [".pdf", ".docx", ".doc", ".txt", ".md", ".csv"];
+  const isDocFile = (name: string) => DOC_EXTS.some(ext => name.toLowerCase().endsWith(ext));
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
+
+    for (const f of files) {
+      if (f.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          setAttached(prev => [...prev, { name: f.name, mimeType: f.type, base64: result.split(",")[1], previewUrl: result }]);
+        };
+        reader.readAsDataURL(f);
+      } else if (isDocFile(f.name)) {
+        setExtracting(true);
+        try {
+          const fd = new FormData();
+          fd.append("file", f);
+          const r = await fetch("/api/extract-doc", { method: "POST", body: fd });
+          const d = await r.json();
+          if (d.text) {
+            setDocs(prev => [...prev, { name: f.name, text: d.text }]);
+          }
+        } finally {
+          setExtracting(false);
+        }
+      }
+    }
   };
 
   const extractUrls = (text: string): string[] => {
@@ -102,9 +170,11 @@ export default function Home() {
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
     const files = [...attached];
+    const currentDocs = [...docs];
     setAttached([]);
+    setDocs([]);
 
-    const newMsgs: Msg[] = [...msgs, { role: "user", content: text, files }];
+    const newMsgs: Msg[] = [...msgs, { role: "user", content: text, files, docTexts: currentDocs.map(d => d.name) }];
     setMsgs(newMsgs);
     setLoading(true);
     setKwRefs([]);
@@ -138,7 +208,8 @@ export default function Home() {
       }
     }
 
-    const combinedCtx = [urlCtx, kwCtx].filter(Boolean).join("\n\n===\n\n");
+    const docCtx = currentDocs.map(d => `【添付ドキュメント: ${d.name}】\n${d.text}`).join("\n\n---\n\n");
+    const combinedCtx = [docCtx, urlCtx, kwCtx].filter(Boolean).join("\n\n===\n\n");
 
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -206,10 +277,15 @@ export default function Home() {
               {history.slice(0,15).map(h => {
                 const d = DEPARTMENTS.find(dep=>dep.id===h.dept_id);
                 return (
-                  <button key={h.id} onClick={()=>loadConv(h.id)} style={{width:"100%",textAlign:"left",padding:"5px 10px",background:"transparent",border:"1px solid transparent",borderRadius:"var(--r-sm)",cursor:"pointer",color:"rgba(255,255,255,0.5)",fontSize:12,display:"flex",alignItems:"center",gap:6,marginBottom:1}}>
-                    <span style={{fontSize:12}}>{d?.icon??"💬"}</span>
-                    <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.title}</span>
-                  </button>
+                  <div key={h.id} style={{position:"relative",display:"flex",alignItems:"center",marginBottom:1}} onMouseEnter={()=>setHoverHistId(h.id)} onMouseLeave={()=>setHoverHistId(null)}>
+                    <button onClick={()=>loadConv(h.id)} style={{flex:1,textAlign:"left",padding:"5px 10px",paddingRight: hoverHistId===h.id?"28px":"10px",background:"transparent",border:"1px solid transparent",borderRadius:"var(--r-sm)",cursor:"pointer",color:"rgba(255,255,255,0.5)",fontSize:12,display:"flex",alignItems:"center",gap:6,overflow:"hidden"}}>
+                      <span style={{fontSize:12,flexShrink:0}}>{d?.icon??"💬"}</span>
+                      <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.title}</span>
+                    </button>
+                    {hoverHistId===h.id && (
+                      <button onClick={(e)=>{e.stopPropagation();deleteConv(h.id);}} title="削除" style={{position:"absolute",right:4,width:20,height:20,borderRadius:4,background:"rgba(255,255,255,0.12)",border:"none",cursor:"pointer",color:"rgba(255,255,255,0.7)",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center",padding:0,lineHeight:1}}>✕</button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -227,9 +303,14 @@ export default function Home() {
           </div>
           <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:10}}>
             {msgs.length > 0 && (
-              <button onClick={exportConv} title="会話をMarkdownでエクスポート" style={{padding:"5px 12px",background:"transparent",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",fontSize:12,color:"var(--text2)",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
-                ⬇ エクスポート
-              </button>
+              <>
+                <button onClick={exportDocx} title="最後の返答をWordファイルでダウンロード" style={{padding:"5px 12px",background:"transparent",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",fontSize:12,color:"var(--text2)",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  📄 Word
+                </button>
+                <button onClick={exportConv} title="会話をMarkdownでエクスポート" style={{padding:"5px 12px",background:"transparent",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",fontSize:12,color:"var(--text2)",cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  ⬇ エクスポート
+                </button>
+              </>
             )}
             <div style={{fontSize:12,color:"var(--text3)",display:"flex",alignItems:"center",gap:5}}>
               <span style={{width:7,height:7,borderRadius:"50%",background:"#16a34a",display:"inline-block"}}/>
@@ -270,10 +351,27 @@ export default function Home() {
                   ? <div className="prose" dangerouslySetInnerHTML={{__html: md(m.content)}}/>
                   : <span style={{whiteSpace:"pre-wrap"}}>{m.content}</span>
                 }
-                {m.role==="assistant" && i===msgs.length-1 && kwRefs.length>0 && (
-                  <div style={{marginTop:8,paddingTop:6,borderTop:"1px solid var(--border)",fontSize:11,color:"var(--text3)",display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-                    <span>参照：</span>
-                    {kwRefs.map(r=><span key={r} style={{background:"var(--blue-bg)",color:"var(--blue)",padding:"1px 7px",borderRadius:10}}>{r}</span>)}
+                {m.role==="assistant" && i===msgs.length-1 && (
+                  <div style={{marginTop:8,paddingTop:6,borderTop:"1px solid var(--border)",display:"flex",flexDirection:"column",gap:6}}>
+                    {kwRefs.length>0 && (
+                      <div style={{fontSize:11,color:"var(--text3)",display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                        <span>参照：</span>
+                        {kwRefs.map(r=><span key={r} style={{background:"var(--blue-bg)",color:"var(--blue)",padding:"1px 7px",borderRadius:10}}>{r}</span>)}
+                      </div>
+                    )}
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      <button onClick={()=>{setInput("この指摘をもとに修正案を書いてください。");taRef.current?.focus();}} style={{padding:"4px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:14,fontSize:12,color:"var(--text2)",cursor:"pointer"}}>✏️ 修正案を出す</button>
+                      <button onClick={()=>{setInput("件名だけ3案出してください。");taRef.current?.focus();}} style={{padding:"4px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:14,fontSize:12,color:"var(--text2)",cursor:"pointer"}}>📌 件名3案</button>
+                      <button onClick={()=>{setInput("もう少し詳しく教えてください。");taRef.current?.focus();}} style={{padding:"4px 10px",background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:14,fontSize:12,color:"var(--text2)",cursor:"pointer"}}>🔍 詳しく</button>
+                      <button onClick={()=>{setGdocUrl(null);createGoogleFile("doc", m.content);}} disabled={!!creatingGdoc} style={{padding:"4px 10px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:14,fontSize:12,color:"#2e7d32",cursor:creatingGdoc?"default":"pointer",opacity:creatingGdoc?0.6:1}}>{creatingGdoc==="doc"?"作成中…":"📄 Googleドキュメント"}</button>
+                      <button onClick={()=>{setGdocUrl(null);createGoogleFile("sheet", m.content);}} disabled={!!creatingGdoc} style={{padding:"4px 10px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:14,fontSize:12,color:"#2e7d32",cursor:creatingGdoc?"default":"pointer",opacity:creatingGdoc?0.6:1}}>{creatingGdoc==="sheet"?"作成中…":"📊 スプレッドシート"}</button>
+                    </div>
+                  {gdocUrl && i===msgs.length-1 && (
+                    <div style={{marginTop:8,padding:"8px 10px",background:"#e8f5e9",border:"1px solid #a5d6a7",borderRadius:"var(--r-sm)",fontSize:12,display:"flex",alignItems:"center",gap:8}}>
+                      <span>✅ 作成完了</span>
+                      <a href={gdocUrl} target="_blank" rel="noreferrer" style={{color:"#1a73e8",textDecoration:"underline",wordBreak:"break-all"}}>{gdocUrl}</a>
+                    </div>
+                  )}
                   </div>
                 )}
               </div>
@@ -305,7 +403,7 @@ export default function Home() {
 
         {/* Input */}
         <div style={{background:"var(--surface)",borderTop:"1px solid var(--border)",padding:"12px 20px"}}>
-          {attached.length > 0 && (
+          {(attached.length > 0 || docs.length > 0 || extracting) && (
             <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
               {attached.map((f,i) => (
                 <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",padding:"4px 8px",fontSize:12}}>
@@ -314,9 +412,22 @@ export default function Home() {
                   <button onClick={()=>setAttached(prev=>prev.filter((_,idx)=>idx!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text3)",fontSize:14,padding:0,lineHeight:1}}>✕</button>
                 </div>
               ))}
+              {docs.map((d,i) => (
+                <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"#f0f7ff",border:"1px solid var(--blue)",borderRadius:"var(--r-sm)",padding:"4px 8px",fontSize:12}}>
+                  <span>📄</span>
+                  <span style={{color:"var(--blue)",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.name}</span>
+                  <span style={{color:"var(--text3)",fontSize:10}}>{Math.round(d.text.length/1000*10)/10}k字</span>
+                  <button onClick={()=>setDocs(prev=>prev.filter((_,idx)=>idx!==i))} style={{background:"none",border:"none",cursor:"pointer",color:"var(--text3)",fontSize:14,padding:0,lineHeight:1}}>✕</button>
+                </div>
+              ))}
+              {extracting && (
+                <div style={{display:"flex",alignItems:"center",gap:6,background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:"var(--r-sm)",padding:"4px 10px",fontSize:12,color:"var(--text3)"}}>
+                  📄 読み取り中…
+                </div>
+              )}
             </div>
           )}
-          <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.txt,.md,.csv" onChange={onFile} style={{display:"none"}}/>
+          <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.docx,.doc,.txt,.md,.csv" onChange={onFile} style={{display:"none"}}/>
           <div style={{display:"flex",gap:8,alignItems:"flex-end",background:"var(--bg)",border:`1.5px solid ${webSearch?"var(--blue)":"var(--border)"}`,borderRadius:"var(--r-lg)",padding:"8px 8px 8px 12px",transition:"border-color 0.2s"}}>
             <button onClick={()=>fileRef.current?.click()} title="ファイル添付" style={{width:32,height:32,borderRadius:"var(--r-sm)",background:"transparent",border:"1px solid var(--border)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--text3)",fontSize:16,flexShrink:0}}>📎</button>
             <button onClick={()=>setWebSearch(v=>!v)} title="ネット検索" style={{width:32,height:32,borderRadius:"var(--r-sm)",background:webSearch?"var(--blue)":"transparent",border:`1px solid ${webSearch?"var(--blue)":"var(--border)"}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0,color:webSearch?"#fff":"var(--text3)",transition:"all 0.2s"}}>🌐</button>
