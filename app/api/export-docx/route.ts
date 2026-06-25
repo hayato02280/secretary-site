@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   });
 
   const buf = await Packer.toBuffer(doc);
-  return new NextResponse(buf, {
+  return new NextResponse(buf as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent((title || "document") + ".docx")}`,
