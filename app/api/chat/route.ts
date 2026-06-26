@@ -4,6 +4,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 import type { DeptId } from "@/lib/departments";
 import type { ConversationMessage } from "@/lib/supabase";
 
+export const maxDuration = 60;
+
 type AttachedFile = { name: string; mimeType: string; base64: string };
 
 // Groq REST API を直接呼ぶ（SDK不使用・完全無料）
